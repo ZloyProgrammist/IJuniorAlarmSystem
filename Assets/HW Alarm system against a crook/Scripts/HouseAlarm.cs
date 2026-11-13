@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using UnityEngine;
 
 [RequireComponent(typeof(Collider))]
@@ -10,12 +11,12 @@ public class HouseAlarm : MonoBehaviour
     [Range(0f, 1f)][SerializeField] private float _minVolume = 0f;
     [Range(0f, 1f)][SerializeField] private float _maxVolume = 1f;
 
-    [SerializeField, Min(0f)] private float _volumeIncreaseSpeed = 0.35f;
-    [SerializeField, Min(0f)] private float _volumeDecreaseSpeed = 0.5f;
-    [SerializeField] private bool _isProcessing = true;
+    [SerializeField, Range(0f, 1f)] private float _volumeIncreaseSpeed = 0.35f;
+    [SerializeField, Range(0f, 1f)] private float _volumeDecreaseSpeed = 0.5f;
 
     private int _thiefCount;
     private Collider _collider;
+    private Coroutine _alarmCoroutine;
 
     public int ThiefCount => _thiefCount;
     public event Action<int> OnThiefCountChanged;
@@ -28,12 +29,6 @@ public class HouseAlarm : MonoBehaviour
         _collider.isTrigger = true;
     }
 
-    private void Update()
-    {
-        if (_isProcessing)
-            ProcessAlarmAudio();
-    }
-
     private void OnTriggerEnter(Collider other)
     {
         Thief thied = other.GetComponent<Thief>();
@@ -44,7 +39,7 @@ public class HouseAlarm : MonoBehaviour
         _thiefCount++;
 
         if (_thiefCount == 1)
-            _isProcessing = true;
+            StartAlarm();
 
         NotifyThiefCountChanged();
     }
@@ -59,7 +54,7 @@ public class HouseAlarm : MonoBehaviour
         _thiefCount--;
 
         if (_thiefCount == 0)
-            _isProcessing = true;
+            StopAlarm();
 
         NotifyThiefCountChanged();
     }
@@ -69,44 +64,53 @@ public class HouseAlarm : MonoBehaviour
         OnThiefCountChanged?.Invoke(_thiefCount);
     }
 
-    private void ProcessAlarmAudio()
+    private void StartAlarm()
     {
         if (_alarmAudio == null)
             return;
 
-        if (_thiefCount > 0)
-            ProcessAlarmIncreasing();
-        else
-            ProcessAlarmDecreasing();
+        if (_alarmCoroutine != null)
+            StopCoroutine(_alarmCoroutine);
+
+        _alarmCoroutine = StartCoroutine(ProcessAlarmIncreasing());
     }
 
-    private void ProcessAlarmIncreasing()
+    private void StopAlarm()
+    {
+        if (_alarmAudio == null)
+            return;
+
+        if (_alarmCoroutine != null)
+            StopCoroutine(_alarmCoroutine);
+
+        _alarmCoroutine = StartCoroutine(ProcessAlarmDecreasing());
+    }
+
+    private IEnumerator ProcessAlarmIncreasing()
     {
         if (_alarmAudio.isPlaying == false)
             _alarmAudio.Play();
 
-        _alarmAudio.volume = Mathf.MoveTowards(_alarmAudio.volume, _maxVolume, _volumeIncreaseSpeed * Time.deltaTime);
+        while (Mathf.Approximately(_alarmAudio.volume, _maxVolume) == false)
+        {
+            _alarmAudio.volume = Mathf.MoveTowards(_alarmAudio.volume, _maxVolume, _volumeIncreaseSpeed * Time.deltaTime);  
+            yield return null;
+        }
 
-        if (_alarmAudio.volume == _maxVolume)
-            _isProcessing = false;
+        _alarmAudio.volume = _maxVolume;
+        _alarmCoroutine = null;
     }
 
-    private void ProcessAlarmDecreasing()
-    {
-        bool isAlreadySilent = Mathf.Approximately(_alarmAudio.volume, _minVolume);
-        
-        if (isAlreadySilent && _alarmAudio.isPlaying == false)
+    private IEnumerator ProcessAlarmDecreasing()
+    {   
+        while (Mathf.Approximately(_alarmAudio.volume, _minVolume) == false)
         {
-            _isProcessing = false;
-            return;
-        } 
-
-        _alarmAudio.volume = Mathf.MoveTowards(_alarmAudio.volume, _minVolume, _volumeDecreaseSpeed * Time.deltaTime);
-
-        if (_isProcessing && Mathf.Approximately(_alarmAudio.volume, _minVolume))
-        {
-            _alarmAudio.Stop();
-            _isProcessing = false;
+            _alarmAudio.volume = Mathf.MoveTowards(_alarmAudio.volume, _minVolume, _volumeDecreaseSpeed * Time.deltaTime);
+            yield return null;
         }
+
+        _alarmAudio.volume = _minVolume;
+        _alarmAudio.Stop();
+        _alarmCoroutine = null;
     }
 }
